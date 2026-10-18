@@ -1,0 +1,7 @@
+{
+  "name": "Ready to Board!✈️",
+  "description": "Airport check-in English speaking practice app for middle school students",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
