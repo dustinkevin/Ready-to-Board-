@@ -10,7 +10,7 @@ import { Header } from './components/Header';
 import { StartScreen } from './components/StartScreen';
 import { PracticeScreen } from './components/PracticeScreen';
 import { ResultScreen } from './components/ResultScreen';
-import { stopSpeaking, unlockAudio } from './utils/speechSynthesis';
+import { stopSpeaking, unlockAudio, speakText } from './utils/speechSynthesis';
 
 type Screen = 'start' | 'practice' | 'result';
 
@@ -27,20 +27,30 @@ export default function App() {
     setAttempts([]);
     setCurrentTurnIndex(0);
     setCurrentScreen('practice');
+
+    // On mobile and desktop: start speaking Emma's first question directly in the user click event!
+    if (soundEnabled && DIALOGUE_DATA[0]) {
+      speakText(DIALOGUE_DATA[0].partnerText, { rate: 0.9 });
+    }
   };
 
   // Turn complete (Next pressed)
   const handleTurnComplete = (attempt: TurnAttempt) => {
     unlockAudio();
-    stopSpeaking();
     setAttempts((prev) => {
       const filtered = prev.filter((a) => a.turnId !== attempt.turnId);
       return [...filtered, attempt];
     });
 
     if (currentTurnIndex + 1 < DIALOGUE_DATA.length) {
-      setCurrentTurnIndex((prev) => prev + 1);
+      const nextIndex = currentTurnIndex + 1;
+      setCurrentTurnIndex(nextIndex);
+      // On mobile and desktop: start speaking next question directly in the user click event!
+      if (soundEnabled && DIALOGUE_DATA[nextIndex]) {
+        speakText(DIALOGUE_DATA[nextIndex].partnerText, { rate: 0.9 });
+      }
     } else {
+      stopSpeaking();
       setCurrentScreen('result');
     }
   };
@@ -66,8 +76,13 @@ export default function App() {
     });
 
     if (currentTurnIndex + 1 < DIALOGUE_DATA.length) {
-      setCurrentTurnIndex((prev) => prev + 1);
+      const nextIndex = currentTurnIndex + 1;
+      setCurrentTurnIndex(nextIndex);
+      if (soundEnabled && DIALOGUE_DATA[nextIndex]) {
+        speakText(DIALOGUE_DATA[nextIndex].partnerText, { rate: 0.9 });
+      }
     } else {
+      stopSpeaking();
       setCurrentScreen('result');
     }
   };
@@ -122,7 +137,6 @@ export default function App() {
 
         {currentScreen === 'practice' && (
           <PracticeScreen
-            key={DIALOGUE_DATA[currentTurnIndex].id}
             turn={DIALOGUE_DATA[currentTurnIndex]}
             turnIndex={currentTurnIndex}
             totalTurns={DIALOGUE_DATA.length}

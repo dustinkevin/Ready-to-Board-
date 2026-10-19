@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DialogueTurn, EvaluationResult, TurnAttempt } from '../types/dialogue';
 import { evaluateStudentSpeech, deduplicateTranscript } from '../utils/speechEvaluation';
-import { speakText, stopSpeaking, unlockAudio } from '../utils/speechSynthesis';
+import { speakText, stopSpeaking, unlockAudio, isSpeaking, subscribeSpeechState } from '../utils/speechSynthesis';
 import { useSpeechRecognition, MicState } from '../hooks/useSpeechRecognition';
 import {
   Volume2,
@@ -41,11 +41,20 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
   const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
-  const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState<boolean>(() => isSpeaking());
   const [showTypeInput, setShowTypeInput] = useState<boolean>(false);
   const [manualInputText, setManualInputText] = useState<string>('');
   const [usedHint, setUsedHint] = useState<boolean>(false);
-  const hasSpokenQuestionRef = useRef<boolean>(false);
+
+  // Synchronize audio playing state with global speech engine
+  useEffect(() => {
+    const unsub = subscribeSpeechState((playing) => {
+      setIsAudioPlaying(playing);
+    });
+    return () => {
+      unsub();
+    };
+  }, []);
 
   // Initialize Speech Recognition Hook
   const {
@@ -84,7 +93,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     },
   });
 
-  // Key Feature 1: "An airport staff's question appears with a Korean translation and is read aloud once."
+  // Stop speaking only when PracticeScreen completely unmounts
+  useEffect(() => {
+    return () => {
+      stopSpeaking();
+    };
+  }, []);
+
+  // Clean lifecycle for each turn
   useEffect(() => {
     // Reset state for new turn
     setAttemptCount(0);
@@ -97,22 +113,23 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setManualInputText('');
     setMicState('ready');
 
-    setIsAudioPlaying(false);
-
-    if (soundEnabled) {
+    // If speech was already initiated in the user click gesture (Start Practice or Next),
+    // immediately reflect it in the UI
+    if (isSpeaking()) {
+      setIsAudioPlaying(true);
+    } else if (soundEnabled) {
+      // Direct entry or reload fallback
       playPartnerSpeech();
     }
-
-    return () => {
-      stopSpeaking();
-      setIsAudioPlaying(false);
-    };
-  }, [turn.id, soundEnabled]);
+  }, [turn.id]);
 
   // Read aloud partner staff's question (Emma)
   const playPartnerSpeech = async () => {
+    if (micState === 'listening') {
+      stopListening();
+    }
     unlockAudio();
-    stopSpeaking();
+    setIsAudioPlaying(true);
     await speakText(turn.partnerText, {
       rate: 0.9,
       onStart: () => setIsAudioPlaying(true),
@@ -123,9 +140,12 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Read aloud target sentence at normal rate (0.9)
   const playTargetNormal = async () => {
+    if (micState === 'listening') {
+      stopListening();
+    }
     unlockAudio();
-    setUsedHint(true); // Using target model audio counts as using hint
-    stopSpeaking();
+    setUsedHint(true);
+    setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
       rate: 0.9,
       onStart: () => setIsAudioPlaying(true),
@@ -134,11 +154,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     });
   };
 
-  // Read aloud target sentence at natural slow rate (0.7)
+  // Read aloud target sentence at slow rate (0.7)
   const playTargetSlow = async () => {
+    if (micState === 'listening') {
+      stopListening();
+    }
     unlockAudio();
-    setUsedHint(true); // Using slow model audio counts as using hint
-    stopSpeaking();
+    setUsedHint(true);
+    setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
       rate: 0.7,
       onStart: () => setIsAudioPlaying(true),
@@ -224,12 +247,12 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Mic tap handler
   const handleMicClick = () => {
-    unlockAudio();
-    if (isAudioPlaying) {
-      stopSpeaking();
-      setIsAudioPlaying(false);
+    // Strictly disable mic interaction while model audio is playing
+    if (isAudioPlaying || isSpeaking()) {
+      return;
     }
 
+    unlockAudio();
     if (micState === 'listening') {
       stopListening();
     } else {
@@ -335,7 +358,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
           <button
             onClick={playPartnerSpeech}
-            disabled={isAudioPlaying}
+            disabled={isAudioPlaying || isSpeaking()}
             className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
             title="Emma 질문 다시 듣기"
           >
@@ -382,7 +405,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
         <div className="flex items-center justify-center gap-3 pt-1">
           <button
             onClick={playTargetNormal}
-            disabled={isAudioPlaying}
+            disabled={isAudioPlaying || isSpeaking()}
             className="flex-1 max-w-[140px] py-2 px-3 rounded-xl bg-white hover:bg-sky-50 text-sky-800 font-bold text-xs sm:text-sm border border-sky-200 shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <Volume2 className="w-4 h-4 text-sky-600" />
@@ -391,7 +414,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
           <button
             onClick={playTargetSlow}
-            disabled={isAudioPlaying}
+            disabled={isAudioPlaying || isSpeaking()}
             className="flex-1 max-w-[140px] py-2 px-3 rounded-xl bg-white hover:bg-amber-50 text-amber-900 font-bold text-xs sm:text-sm border border-amber-200 shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
           >
             <Turtle className="w-4 h-4 text-amber-600" />
@@ -610,25 +633,25 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
             <button
               onClick={handleMicClick}
-              disabled={isAudioPlaying}
-              className={`w-20 h-20 sm:w-22 sm:h-22 rounded-full flex flex-col items-center justify-center text-white font-bold shadow-xl transition-all duration-200 active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
-                isAudioPlaying
-                  ? 'bg-slate-400'
+              disabled={isAudioPlaying || isSpeaking()}
+              className={`w-20 h-20 sm:w-22 sm:h-22 rounded-full flex flex-col items-center justify-center text-white font-bold shadow-xl transition-all duration-200 active:scale-95 ${
+                isAudioPlaying || isSpeaking()
+                  ? 'bg-slate-500 ring-4 ring-slate-300 shadow-slate-300 cursor-not-allowed pointer-events-none'
                   : micState === 'listening'
-                  ? 'bg-gradient-to-r from-rose-500 to-red-600 ring-4 ring-rose-200 shadow-rose-300'
+                  ? 'bg-gradient-to-r from-rose-500 to-red-600 ring-4 ring-rose-200 shadow-rose-300 cursor-pointer'
                   : micState === 'done'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 ring-4 ring-emerald-100 shadow-emerald-200'
-                  : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 ring-4 ring-sky-100 shadow-sky-300'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 ring-4 ring-emerald-100 shadow-emerald-200 cursor-pointer'
+                  : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 ring-4 ring-sky-100 shadow-sky-300 cursor-pointer'
               }`}
             >
-              {isAudioPlaying ? (
+              {isAudioPlaying || isSpeaking() ? (
                 <Volume2 className="w-8 h-8 text-white animate-pulse" />
               ) : (
                 <Mic className={`w-8 h-8 ${micState === 'listening' ? 'scale-115 animate-bounce' : ''}`} />
               )}
-              <span className="text-[10px] font-bold mt-1 tracking-tight">
-                {isAudioPlaying
-                  ? 'Listening...'
+              <span className="text-[10px] font-bold mt-1 tracking-tight text-center px-1">
+                {isAudioPlaying || isSpeaking()
+                  ? '안내 음성 듣는 중'
                   : micState === 'ready'
                   ? 'Tap to Speak'
                   : micState === 'listening'
@@ -639,8 +662,8 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
           </div>
 
           <p className="text-[11px] text-slate-500 font-medium mt-2 text-center">
-            {isAudioPlaying
-              ? '🔊 안내 음성이 재생 중입니다...'
+            {isAudioPlaying || isSpeaking()
+              ? '🔊 안내 음성이 재생 중입니다. 음성이 끝나면 마이크가 켜집니다.'
               : micState === 'listening'
               ? '🔴 말씀하세요! (2초 이상 침묵 시 자동 완료 또는 다시 탭)'
               : micState === 'done'
