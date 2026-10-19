@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DialogueTurn, EvaluationResult, TurnAttempt } from '../types/dialogue';
 import { evaluateStudentSpeech } from '../utils/speechEvaluation';
-import { speakText, stopSpeaking } from '../utils/speechSynthesis';
+import { speakText, stopSpeaking, unlockAudio } from '../utils/speechSynthesis';
 import { useSpeechRecognition, MicState } from '../hooks/useSpeechRecognition';
 import {
   Volume2,
@@ -54,6 +54,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     transcript,
     setTranscript,
     isSupported,
+    isInAppBrowser,
     permissionError,
     startListening,
     stopListening,
@@ -64,13 +65,13 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
       const result = evaluateStudentSpeech(liveText, turn);
       if (!result.isSuccess) return false;
 
-      // 2. Only stop early if the student has actually spoken to the end of the sentence!
-      // (Prevents premature cutoff while student is still saying trailing words like 'please', 'for my vacation', 'to check in')
+      // 2. Stop early when the student has finished saying the target response
       const targetTokens = turn.targetSentence.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
       const liveTokens = liveText.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
       const lastTargetWord = targetTokens[targetTokens.length - 1];
 
-      return liveTokens.includes(lastTargetWord) || liveTokens.length >= targetTokens.length;
+      const matchedAll = result.matchedIndices.length >= targetTokens.length;
+      return matchedAll || liveTokens.includes(lastTargetWord) || liveTokens.length >= targetTokens.length;
     },
     onFinalResult: (finalText) => {
       handleEvaluateSubmission(finalText);
@@ -114,10 +115,11 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Read aloud partner staff's question (Emma)
   const playPartnerSpeech = async () => {
+    unlockAudio();
     stopSpeaking();
-    setIsAudioPlaying(true);
     await speakText(turn.partnerText, {
       rate: 0.9,
+      onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
@@ -125,23 +127,25 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Read aloud target sentence at normal rate (0.9)
   const playTargetNormal = async () => {
+    unlockAudio();
     setUsedHint(true); // Using target model audio counts as using hint
     stopSpeaking();
-    setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
       rate: 0.9,
+      onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
   };
 
-  // Read aloud target sentence at extra-slow rate (0.55)
+  // Read aloud target sentence at clear slow rate (0.6)
   const playTargetSlow = async () => {
+    unlockAudio();
     setUsedHint(true); // Using slow model audio counts as using hint
     stopSpeaking();
-    setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
-      rate: 0.55,
+      rate: 0.6,
+      onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
@@ -223,10 +227,10 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Mic tap handler
   const handleMicClick = () => {
+    unlockAudio();
     if (isAudioPlaying) {
       stopSpeaking();
       setIsAudioPlaying(false);
-      return;
     }
 
     if (micState === 'listening') {
@@ -335,11 +339,11 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
           <button
             onClick={playPartnerSpeech}
             disabled={isAudioPlaying}
-            className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-colors disabled:opacity-50"
-            title="다시 듣기"
+            className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-700 border border-sky-200 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
+            title="Emma 질문 다시 듣기"
           >
-            <Volume2 className="w-3.5 h-3.5" />
-            <span className="text-[11px]">Replay</span>
+            <Volume2 className="w-4 h-4 text-sky-600" />
+            <span className="text-xs">🔊 질문 듣기</span>
           </button>
         </div>
 
@@ -576,6 +580,26 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
           </div>
         )}
 
+        {(!isSupported || isInAppBrowser) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-1.5">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">
+                  {isInAppBrowser
+                    ? '인앱 브라우저(카카오톡, 인스타 등) 안내'
+                    : '음성 인식 미지원 브라우저 안내'}
+                </p>
+                <p className="mt-0.5 text-amber-800 leading-relaxed">
+                  {isInAppBrowser
+                    ? '카카오톡이나 인스타그램 등 인앱 브라우저에서는 마이크 접근이 차단될 수 있습니다. 상단 메뉴에서 Chrome 또는 Safari로 열거나, 아래 [키보드로 직접 입력]을 이용해 주세요.'
+                    : 'Chrome 또는 Safari 브라우저를 이용하시거나, 아래 [키보드로 직접 입력]으로도 모든 학습을 진행하실 수 있습니다.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Large Mic Button with 3 states: Ready, Listening, Done */}
         <div className="flex flex-col items-center justify-center">
           <div className="relative">
@@ -625,6 +649,10 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
               : micState === 'done'
               ? '피드백을 확인하고 다시 시도하거나 다음으로 넘어가세요.'
               : '마이크를 누르고 영어로 말해 보세요.'}
+          </p>
+
+          <p className="text-[10px] text-slate-400 font-normal mt-0.5 text-center">
+            💡 스마트폰에서는 무음(진동) 모드를 해제하고 미디어 음량을 켜주세요.
           </p>
         </div>
 

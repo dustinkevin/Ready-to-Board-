@@ -129,6 +129,34 @@ Return ONLY the feedback string in this exact format.`;
   }
 });
 
+// Audio TTS proxy for reliable mobile (iOS Safari & Android) playback
+app.get('/api/tts', async (req, res) => {
+  try {
+    const rawText = String(req.query.text || '').trim();
+    if (!rawText) {
+      return res.status(400).send('Text required');
+    }
+    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(rawText)}`;
+    const ttsRes = await fetch(ttsUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+    });
+
+    if (!ttsRes.ok) {
+      return res.status(502).send('Upstream TTS failed');
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    const arrayBuf = await ttsRes.arrayBuffer();
+    return res.send(Buffer.from(arrayBuf));
+  } catch (err: any) {
+    console.error('TTS endpoint error:', err);
+    return res.status(500).send(err?.message || 'TTS Error');
+  }
+});
+
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production' || !fs.existsSync(path.resolve('.', 'vite.config.ts'));
 

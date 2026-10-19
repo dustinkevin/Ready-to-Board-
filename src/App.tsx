@@ -10,7 +10,7 @@ import { Header } from './components/Header';
 import { StartScreen } from './components/StartScreen';
 import { PracticeScreen } from './components/PracticeScreen';
 import { ResultScreen } from './components/ResultScreen';
-import { stopSpeaking } from './utils/speechSynthesis';
+import { stopSpeaking, unlockAudio } from './utils/speechSynthesis';
 
 type Screen = 'start' | 'practice' | 'result';
 
@@ -22,6 +22,7 @@ export default function App() {
 
   // Start practice from Start Screen
   const handleStartPractice = () => {
+    unlockAudio();
     stopSpeaking();
     setAttempts([]);
     setCurrentTurnIndex(0);
