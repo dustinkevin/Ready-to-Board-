@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DialogueTurn, EvaluationResult, TurnAttempt } from '../types/dialogue';
-import { evaluateStudentSpeech } from '../utils/speechEvaluation';
+import { evaluateStudentSpeech, deduplicateTranscript } from '../utils/speechEvaluation';
 import { speakText, stopSpeaking, unlockAudio } from '../utils/speechSynthesis';
 import { useSpeechRecognition, MicState } from '../hooks/useSpeechRecognition';
 import {
@@ -153,7 +153,8 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Evaluation & Feedback generation
   const handleEvaluateSubmission = async (spoken: string) => {
-    const trimmed = spoken.trim();
+    if (isAiLoading) return;
+    const trimmed = deduplicateTranscript(spoken).trim();
     setLastSpokenText(trimmed);
 
     // If student said nothing or microphone returned empty

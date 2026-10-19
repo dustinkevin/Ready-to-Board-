@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { deduplicateTranscript } from '../utils/speechEvaluation';
 
 // Declarations for Web Speech API
 declare global {
@@ -37,7 +38,7 @@ export function useSpeechRecognition({
   const currentTranscriptRef = useRef<string>('');
   const isAbortedRef = useRef<boolean>(false);
   const isListeningRef = useRef<boolean>(false);
-  const isStoppingRef = useRef<boolean>(false);
+  const hasFinalizedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -84,29 +85,45 @@ export function useSpeechRecognition({
       recognitionRef.current = null;
     }
     isListeningRef.current = false;
-    isStoppingRef.current = false;
   };
+
+  /**
+   * Delivers final evaluation EXACTLY ONCE per speech session.
+   * Prevents repeated duplicate callbacks or multi-trigger evaluations.
+   */
+  const deliverFinalResult = useCallback(
+    (rawTranscript: string) => {
+      if (hasFinalizedRef.current) return;
+      hasFinalizedRef.current = true;
+
+      clearTimers();
+      isListeningRef.current = false;
+
+      const cleanSpoken = deduplicateTranscript(rawTranscript);
+      currentTranscriptRef.current = cleanSpoken;
+      setTranscript(cleanSpoken);
+      setMicState('done');
+
+      onFinalResult(cleanSpoken);
+    },
+    [onFinalResult]
+  );
 
   const stopListening = useCallback(() => {
     clearTimers();
-    if (isStoppingRef.current) return;
-    isStoppingRef.current = true;
+    if (hasFinalizedRef.current) return;
 
     if (recognitionRef.current && isListeningRef.current) {
       try {
         recognitionRef.current.stop();
       } catch (e) {
         cleanupCurrentRecognition();
-        const spoken = currentTranscriptRef.current.trim();
-        setMicState('done');
-        onFinalResult(spoken);
+        deliverFinalResult(currentTranscriptRef.current);
       }
     } else {
-      const spoken = currentTranscriptRef.current.trim();
-      setMicState('done');
-      onFinalResult(spoken);
+      deliverFinalResult(currentTranscriptRef.current);
     }
-  }, [onFinalResult]);
+  }, [deliverFinalResult]);
 
   const startListening = useCallback(() => {
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -118,7 +135,7 @@ export function useSpeechRecognition({
 
     // Clean up any lingering recognition
     isAbortedRef.current = false;
-    isStoppingRef.current = false;
+    hasFinalizedRef.current = false;
     cleanupCurrentRecognition();
 
     setPermissionError(null);
@@ -140,8 +157,8 @@ export function useSpeechRecognition({
       const recognition = new SpeechRec();
       recognition.lang = 'en-US';
 
-      // Mobile OS detection:
-      // iOS Safari fails or crashes if continuous=true is set.
+      // Mobile OS tuning:
+      // iOS Safari crashes or fails silently with continuous=true.
       // Android Chrome & Desktop support continuous=true.
       const isIOS =
         typeof navigator !== 'undefined' &&
@@ -153,6 +170,7 @@ export function useSpeechRecognition({
 
       recognition.onstart = () => {
         isListeningRef.current = true;
+        hasFinalizedRef.current = false;
         setMicState('listening');
 
         // Safety timeout: if no speech is detected after 9 seconds, cleanly auto-stop
@@ -165,19 +183,41 @@ export function useSpeechRecognition({
       };
 
       recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
+        if (hasFinalizedRef.current) return;
 
-        for (let i = 0; i < event.results.length; ++i) {
-          const item = event.results[i];
-          if (item.isFinal) {
-            finalTranscript += item[0].transcript + ' ';
-          } else {
-            interimTranscript += item[0].transcript;
+        // Parse transcript with intelligent deduplication:
+        // On Android Chrome, event.results often appends cumulative sentences,
+        // causing sentences to repeat multiple times if concatenated naively.
+        let combined = '';
+
+        if (event.results.length === 1) {
+          combined = event.results[0][0]?.transcript || '';
+        } else {
+          // Check if latest result already includes the previous speech
+          const allSegments: string[] = [];
+          for (let i = 0; i < event.results.length; ++i) {
+            const seg = event.results[i][0]?.transcript?.trim();
+            if (seg && !allSegments.includes(seg)) {
+              allSegments.push(seg);
+            }
+          }
+
+          if (allSegments.length > 1) {
+            const lastSeg = allSegments[allSegments.length - 1];
+            const firstSeg = allSegments[0];
+            // If the last segment already contains the first segment, take the last segment
+            if (lastSeg.toLowerCase().includes(firstSeg.toLowerCase())) {
+              combined = lastSeg;
+            } else {
+              combined = allSegments.join(' ');
+            }
+          } else if (allSegments.length === 1) {
+            combined = allSegments[0];
           }
         }
 
-        const fullText = (finalTranscript + interimTranscript).trim();
+        const fullText = deduplicateTranscript(combined);
+
         if (fullText) {
           currentTranscriptRef.current = fullText;
           setTranscript(fullText);
@@ -186,7 +226,10 @@ export function useSpeechRecognition({
           // If speech is recognized as correct and reached sentence end, stop immediately!
           if (checkShouldEarlyStop && checkShouldEarlyStop(fullText)) {
             clearTimers();
-            stopListening();
+            deliverFinalResult(fullText);
+            try {
+              recognition.stop();
+            } catch (e) {}
             return;
           }
 
@@ -204,11 +247,11 @@ export function useSpeechRecognition({
 
       recognition.onerror = (event: any) => {
         clearTimers();
-        isListeningRef.current = false;
 
         if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           setPermissionError('마이크 권한이 차단되었습니다. 브라우저 설정에서 마이크 권한을 허용해 주세요.');
           onError?.('Microphone permission denied.');
+          isListeningRef.current = false;
           setMicState('ready');
         } else if (event.error === 'no-speech') {
           // Handled gracefully in onend
@@ -230,9 +273,7 @@ export function useSpeechRecognition({
           return;
         }
 
-        const spoken = currentTranscriptRef.current.trim();
-        setMicState('done');
-        onFinalResult(spoken);
+        deliverFinalResult(currentTranscriptRef.current);
       };
 
       recognitionRef.current = recognition;
@@ -243,7 +284,14 @@ export function useSpeechRecognition({
       setMicState('ready');
       isListeningRef.current = false;
     }
-  }, [onError, onFinalResult, onInterimResult, silenceTimeoutMs, checkShouldEarlyStop, stopListening]);
+  }, [
+    onError,
+    onInterimResult,
+    silenceTimeoutMs,
+    checkShouldEarlyStop,
+    stopListening,
+    deliverFinalResult,
+  ]);
 
   return {
     micState,
