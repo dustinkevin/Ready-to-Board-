@@ -97,19 +97,15 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setManualInputText('');
     setMicState('ready');
 
-    hasSpokenQuestionRef.current = false;
+    setIsAudioPlaying(false);
 
-    // Small delay to let component mount, then read aloud once
-    const timer = setTimeout(() => {
-      if (soundEnabled && !hasSpokenQuestionRef.current) {
-        hasSpokenQuestionRef.current = true;
-        playPartnerSpeech();
-      }
-    }, 400);
+    if (soundEnabled) {
+      playPartnerSpeech();
+    }
 
     return () => {
-      clearTimeout(timer);
       stopSpeaking();
+      setIsAudioPlaying(false);
     };
   }, [turn.id, soundEnabled]);
 
@@ -138,13 +134,13 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     });
   };
 
-  // Read aloud target sentence at clear slow rate (0.6)
+  // Read aloud target sentence at natural slow rate (0.7)
   const playTargetSlow = async () => {
     unlockAudio();
     setUsedHint(true); // Using slow model audio counts as using hint
     stopSpeaking();
     await speakText(turn.targetSentence, {
-      rate: 0.6,
+      rate: 0.7,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),

@@ -31,6 +31,8 @@ export default function App() {
 
   // Turn complete (Next pressed)
   const handleTurnComplete = (attempt: TurnAttempt) => {
+    unlockAudio();
+    stopSpeaking();
     setAttempts((prev) => {
       const filtered = prev.filter((a) => a.turnId !== attempt.turnId);
       return [...filtered, attempt];

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { DialogueTurn, TurnAttempt } from '../types/dialogue';
-import { speakText, stopSpeaking } from '../utils/speechSynthesis';
+import { speakText, stopSpeaking, unlockAudio } from '../utils/speechSynthesis';
 import {
   Plane,
   Star,
@@ -49,6 +49,7 @@ export const ResultScreen: React.FC<ResultScreenProps> = ({
   }
 
   const handlePlayAudio = async (turn: DialogueTurn) => {
+    unlockAudio();
     stopSpeaking();
     setPlayingTurnId(turn.id);
     await speakText(turn.targetSentence, {

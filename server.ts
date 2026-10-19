@@ -129,6 +129,9 @@ Return ONLY the feedback string in this exact format.`;
   }
 });
 
+// In-memory audio cache for zero-latency mobile playback
+const ttsCache = new Map<string, Buffer>();
+
 // Audio TTS proxy for reliable mobile (iOS Safari & Android) playback
 app.get('/api/tts', async (req, res) => {
   try {
@@ -136,21 +139,44 @@ app.get('/api/tts', async (req, res) => {
     if (!rawText) {
       return res.status(400).send('Text required');
     }
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(rawText)}`;
-    const ttsRes = await fetch(ttsUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
 
-    if (!ttsRes.ok) {
-      return res.status(502).send('Upstream TTS failed');
+    let audioBuffer = ttsCache.get(rawText);
+    if (!audioBuffer) {
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(rawText)}`;
+      const ttsRes = await fetch(ttsUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        },
+      });
+
+      if (!ttsRes.ok) {
+        return res.status(502).send('Upstream TTS failed');
+      }
+
+      const arrayBuf = await ttsRes.arrayBuffer();
+      audioBuffer = Buffer.from(arrayBuf);
+      ttsCache.set(rawText, audioBuffer);
     }
 
     res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    const arrayBuf = await ttsRes.arrayBuffer();
-    return res.send(Buffer.from(arrayBuf));
+
+    const range = req.headers.range;
+    if (range) {
+      const total = audioBuffer.length;
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : total - 1;
+
+      res.status(206);
+      res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`);
+      res.setHeader('Content-Length', end - start + 1);
+      return res.send(audioBuffer.subarray(start, end + 1));
+    }
+
+    res.setHeader('Content-Length', audioBuffer.length);
+    return res.send(audioBuffer);
   } catch (err: any) {
     console.error('TTS endpoint error:', err);
     return res.status(500).send(err?.message || 'TTS Error');
