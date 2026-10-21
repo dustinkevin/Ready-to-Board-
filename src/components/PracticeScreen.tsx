@@ -45,6 +45,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
   const [showTypeInput, setShowTypeInput] = useState<boolean>(false);
   const [manualInputText, setManualInputText] = useState<string>('');
   const [usedHint, setUsedHint] = useState<boolean>(false);
+  const lastPlayedTurnIdRef = useRef<number | null>(null);
 
   // Synchronize audio playing state with global speech engine
   useEffect(() => {
@@ -87,7 +88,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     };
   }, []);
 
-  // Clean lifecycle for each turn
+  // Clean lifecycle for each turn - plays Emma's question exactly ONCE per turn
   useEffect(() => {
     // Reset state for new turn
     setAttemptCount(0);
@@ -100,15 +101,12 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setManualInputText('');
     setMicState('ready');
 
-    // If speech was already initiated in the user click gesture (Start Practice or Next),
-    // immediately reflect it in the UI
-    if (isSpeaking()) {
-      setIsAudioPlaying(true);
-    } else if (soundEnabled) {
-      // Direct entry or reload fallback
+    // Only play Emma's question once per turn ID to prevent duplicate speech
+    if (soundEnabled && lastPlayedTurnIdRef.current !== turn.id) {
+      lastPlayedTurnIdRef.current = turn.id;
       playPartnerSpeech();
     }
-  }, [turn.id]);
+  }, [turn.id, soundEnabled]);
 
   // Read aloud partner staff's question (Emma)
   const playPartnerSpeech = async () => {
@@ -118,14 +116,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     unlockAudio();
     setIsAudioPlaying(true);
     await speakText(turn.partnerText, {
-      rate: 1.0,
+      rate: 0.9,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
   };
 
-  // Read aloud target sentence at normal rate (1.0)
+  // Read aloud target sentence at normal rate (0.9)
   const playTargetNormal = async () => {
     if (micState === 'listening') {
       stopListening();
@@ -134,14 +132,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setUsedHint(true);
     setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
-      rate: 1.0,
+      rate: 0.9,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
   };
 
-  // Read aloud target sentence at slow rate (0.75)
+  // Read aloud target sentence at slow rate (0.7)
   const playTargetSlow = async () => {
     if (micState === 'listening') {
       stopListening();
@@ -150,7 +148,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setUsedHint(true);
     setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
-      rate: 0.75,
+      rate: 0.7,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
@@ -205,9 +203,10 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Mic tap handler
   const handleMicClick = () => {
-    // Strictly disable mic interaction while model audio is playing
+    // If model audio is playing, interrupt it cleanly and activate microphone
     if (isAudioPlaying || isSpeaking()) {
-      return;
+      stopSpeaking();
+      setIsAudioPlaying(false);
     }
 
     unlockAudio();
@@ -215,7 +214,6 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
       stopListening();
     } else {
       // Starting a new speech attempt (including "Speak Again")
-      // Immediately reset previous feedback so Next and Try Again are locked until new feedback arrives
       stopSpeaking();
       setFeedback(null);
       setEvaluation(null);
@@ -591,15 +589,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
             <button
               onClick={handleMicClick}
-              disabled={isAudioPlaying || isSpeaking()}
-              className={`w-20 h-20 sm:w-22 sm:h-22 rounded-full flex flex-col items-center justify-center text-white font-bold shadow-xl transition-all duration-200 active:scale-95 ${
+              className={`w-20 h-20 sm:w-22 sm:h-22 rounded-full flex flex-col items-center justify-center text-white font-bold shadow-xl transition-all duration-200 active:scale-95 cursor-pointer ${
                 isAudioPlaying || isSpeaking()
-                  ? 'bg-slate-500 ring-4 ring-slate-300 shadow-slate-300 cursor-not-allowed pointer-events-none'
+                  ? 'bg-slate-500 ring-4 ring-slate-300 shadow-slate-300'
                   : micState === 'listening'
-                  ? 'bg-gradient-to-r from-rose-500 to-red-600 ring-4 ring-rose-200 shadow-rose-300 cursor-pointer'
+                  ? 'bg-gradient-to-r from-rose-500 to-red-600 ring-4 ring-rose-200 shadow-rose-300'
                   : micState === 'done'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 ring-4 ring-emerald-100 shadow-emerald-200 cursor-pointer'
-                  : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 ring-4 ring-sky-100 shadow-sky-300 cursor-pointer'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 ring-4 ring-emerald-100 shadow-emerald-200'
+                  : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 ring-4 ring-sky-100 shadow-sky-300'
               }`}
             >
               {isAudioPlaying || isSpeaking() ? (

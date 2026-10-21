@@ -250,6 +250,8 @@ export function useSpeechRecognition({
           return;
         } else {
           onError?.(`Recognition error: ${event.error}`);
+          isListeningRef.current = false;
+          setMicState('ready');
         }
       };
 

@@ -34,10 +34,6 @@ export default function App() {
     setCurrentTurnIndex(0);
     setCurrentScreen('practice');
 
-    // On mobile and desktop: start speaking Emma's first question directly in the user click event!
-    if (soundEnabled && DIALOGUE_DATA[0]) {
-      speakText(DIALOGUE_DATA[0].partnerText, { rate: 1.0 });
-    }
   };
 
   // Turn complete (Next pressed)
@@ -49,12 +45,7 @@ export default function App() {
     });
 
     if (currentTurnIndex + 1 < DIALOGUE_DATA.length) {
-      const nextIndex = currentTurnIndex + 1;
-      setCurrentTurnIndex(nextIndex);
-      // On mobile and desktop: start speaking next question directly in the user click event!
-      if (soundEnabled && DIALOGUE_DATA[nextIndex]) {
-        speakText(DIALOGUE_DATA[nextIndex].partnerText, { rate: 1.0 });
-      }
+      setCurrentTurnIndex(currentTurnIndex + 1);
     } else {
       stopSpeaking();
       setCurrentScreen('result');

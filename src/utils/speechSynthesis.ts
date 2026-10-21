@@ -1,17 +1,17 @@
 /**
- * Universal Mobile & Desktop Speech Playback Engine
- * Uses High-Fidelity Studio Audio (/api/tts powered by Gemini 3.8 Flash Lite TTS, voice 'Kore')
- * with HTML5 Audio for 100% reliable mobile playback (iOS Safari, Android Chrome, in-app WebViews)
- * and automatic Web Speech API fallback.
+ * Universal Zero-Dependency Client-Side Speech Playback Engine
+ * Uses Web Speech API (SpeechSynthesis) directly in the browser
+ * Works 100% on Vercel, Netlify, mobile Safari, Chrome, and local dev without any backend server.
+ * Normal rate: 0.9, Slow rate: 0.7
+ * Pitch: 1.0 (Natural device voice)
  */
 
-const listeners = new Set<(playing: boolean) => void>();
-let globalAudio: HTMLAudioElement | null = null;
+let currentUtterance: SpeechSynthesisUtterance | null = null;
 let watchdogTimer: any = null;
-let isAudioActive = false;
+let bestVoice: SpeechSynthesisVoice | null = null;
+const listeners = new Set<(playing: boolean) => void>();
 
 function notifyListeners(playing: boolean) {
-  isAudioActive = playing;
   listeners.forEach((fn) => {
     try {
       fn(playing);
@@ -29,35 +29,66 @@ export function subscribeSpeechState(callback: (playing: boolean) => void): () =
 }
 
 /**
- * Returns a shared, mobile-optimized HTMLAudioElement singleton
+ * Finds the best natural US English voice available on this device
  */
-function getAudioElement(): HTMLAudioElement {
-  if (!globalAudio && typeof window !== 'undefined') {
-    globalAudio = new Audio();
-    // Maintain natural pitch even when slowing down
-    try {
-      (globalAudio as any).preservesPitch = true;
-      (globalAudio as any).mozPreservesPitch = true;
-      (globalAudio as any).webkitPreservesPitch = true;
-    } catch (e) {}
+function updateBestVoice(): SpeechSynthesisVoice | null {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices || voices.length === 0) return null;
+
+  // 1. Natural US English voices (Samantha, Siri, Google US English, Natural, Premium)
+  const preferred = voices.find(
+    (v) =>
+      v.lang.replace('_', '-').startsWith('en-US') &&
+      (v.name.includes('Samantha') ||
+        v.name.includes('Siri') ||
+        v.name.includes('Google') ||
+        v.name.includes('Natural') ||
+        v.name.includes('Premium'))
+  );
+  if (preferred) {
+    bestVoice = preferred;
+    return preferred;
   }
-  return globalAudio!;
+
+  // 2. Any en-US voice
+  const enUs = voices.find(
+    (v) => v.lang.replace('_', '-').startsWith('en-US') || v.lang === 'en_US'
+  );
+  if (enUs) {
+    bestVoice = enUs;
+    return enUs;
+  }
+
+  // 3. Any English voice
+  const anyEn = voices.find((v) => v.lang.startsWith('en'));
+  if (anyEn) {
+    bestVoice = anyEn;
+    return anyEn;
+  }
+
+  bestVoice = voices[0] || null;
+  return bestVoice;
+}
+
+// Warm up voices on startup
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  updateBestVoice();
+  window.speechSynthesis.onvoiceschanged = () => {
+    updateBestVoice();
+  };
 }
 
 /**
- * Returns whether any speech or audio is currently playing
+ * Returns whether speech synthesis is actively speaking
  */
 export function isSpeaking(): boolean {
-  if (isAudioActive) return true;
-  if (globalAudio && !globalAudio.paused && !globalAudio.ended) return true;
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    return Boolean(window.speechSynthesis.speaking || window.speechSynthesis.pending);
-  }
-  return false;
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return false;
+  return Boolean(window.speechSynthesis.speaking);
 }
 
 /**
- * Stops all audio playback immediately
+ * Stops all speech playback immediately
  */
 export function stopSpeaking(): void {
   if (watchdogTimer) {
@@ -65,15 +96,6 @@ export function stopSpeaking(): void {
     watchdogTimer = null;
   }
 
-  // Stop HTML5 audio
-  if (globalAudio) {
-    try {
-      globalAudio.pause();
-      globalAudio.currentTime = 0;
-    } catch (e) {}
-  }
-
-  // Stop Web Speech synthesis if active
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     try {
       if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
@@ -82,61 +104,49 @@ export function stopSpeaking(): void {
     } catch (e) {}
   }
 
+  currentUtterance = null;
   notifyListeners(false);
 }
 
 /**
- * Unlocks the mobile audio session inside a user gesture
+ * Unlocks audio on mobile during user gesture
  */
 export function unlockAudio(): void {
-  if (typeof window === 'undefined') return;
-  const audio = getAudioElement();
-  if (audio) {
-    try {
-      // Gentle touch activation
-      if (audio.paused && audio.src) {
-        // do not disturb
-      }
-    } catch (e) {}
-  }
-
-  if ('speechSynthesis' in window) {
-    try {
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-    } catch (e) {}
-  }
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  try {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+    updateBestVoice();
+  } catch (e) {}
 }
 
 /**
- * Preloads audio files in background so playback on mobile is instant (0ms latency)
+ * Preload dummy function for compatibility
  */
-export function preloadAudios(texts: string[]): void {
-  if (typeof window === 'undefined') return;
-  texts.forEach((text) => {
-    if (!text || !text.trim()) return;
-    try {
-      const audio = new Audio();
-      audio.preload = 'auto';
-      audio.src = `/api/tts?text=${encodeURIComponent(text.trim())}`;
-    } catch (e) {}
-  });
+export function preloadAudios(_texts: string[]): void {
+  // Web Speech API does not require pre-downloading files
 }
 
 /**
- * Plays text aloud using high-fidelity Gemini studio audio (with Web Speech fallback)
+ * Speak text aloud using browser SpeechSynthesis with guaranteed state release
  */
 export function speakText(
   text: string,
   options: {
-    rate?: number; // 0.9 or 1.0 for normal, 0.7 or 0.75 for slow
+    rate?: number; // 0.9 for normal, 0.7 for slow
     onStart?: () => void;
     onEnd?: () => void;
     onError?: (err: any) => void;
   } = {}
 ): Promise<void> {
   return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      options.onEnd?.();
+      resolve();
+      return;
+    }
+
     const cleanText = text ? text.trim() : '';
     if (!cleanText) {
       options.onEnd?.();
@@ -144,9 +154,8 @@ export function speakText(
       return;
     }
 
+    // Stop previous utterance
     stopSpeaking();
-    notifyListeners(true);
-    options.onStart?.();
 
     let isDone = false;
     const finish = () => {
@@ -156,87 +165,57 @@ export function speakText(
         clearTimeout(watchdogTimer);
         watchdogTimer = null;
       }
+      currentUtterance = null;
       notifyListeners(false);
       options.onEnd?.();
       resolve();
     };
 
-    // Calculate maximum safe duration
+    // Safety watchdog: ensure UI is ALWAYS released within expected time
     const words = cleanText.split(/\s+/).length;
-    const effectiveRate = options.rate ?? 1.0;
-    const maxMs = Math.max(3500, (words / (effectiveRate * 1.8)) * 1000 + 2500);
+    const rate = options.rate ?? 0.9;
+    const maxMs = Math.max(2500, (words / (rate * 1.8)) * 1000 + 1500);
     watchdogTimer = setTimeout(() => {
       finish();
     }, maxMs);
 
-    // Primary Engine: HTML5 Audio with Studio TTS
     try {
-      const audio = getAudioElement();
-      audio.src = `/api/tts?text=${encodeURIComponent(cleanText)}`;
-      audio.playbackRate = effectiveRate;
-      try {
-        (audio as any).preservesPitch = true;
-      } catch (e) {}
+      // Resume if paused (common on mobile Safari and Chrome)
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
 
-      audio.onended = () => {
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = 'en-US';
+      utterance.rate = rate;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      const voice = bestVoice || updateBestVoice();
+      if (voice) {
+        utterance.voice = voice;
+      }
+
+      utterance.onstart = () => {
+        notifyListeners(true);
+        options.onStart?.();
+      };
+
+      utterance.onend = () => {
         finish();
       };
 
-      audio.onerror = (e) => {
-        console.warn('HTML5 audio error, trying fallback synthesis:', e);
-        // Fallback to Web Speech API
-        tryFallbackSynthesis(cleanText, effectiveRate, finish, options.onError);
+      utterance.onerror = (e) => {
+        options.onError?.(e);
+        finish();
       };
 
-      const playPromise = audio.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.warn('Audio play interrupted or blocked:', err);
-          // If autoplay was blocked or error, fallback to Web Speech
-          tryFallbackSynthesis(cleanText, effectiveRate, finish, options.onError);
-        });
-      }
+      currentUtterance = utterance;
+      window.speechSynthesis.speak(utterance);
     } catch (err) {
-      console.warn('Primary audio failed to initialize, trying fallback:', err);
-      tryFallbackSynthesis(cleanText, effectiveRate, finish, options.onError);
+      console.warn('Speech synthesis speak error:', err);
+      options.onError?.(err);
+      finish();
     }
   });
-}
-
-function tryFallbackSynthesis(
-  text: string,
-  rate: number,
-  finish: () => void,
-  onError?: (err: any) => void
-) {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    finish();
-    return;
-  }
-
-  try {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-US';
-    utterance.rate = rate;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    const voices = window.speechSynthesis.getVoices();
-    const enVoice = voices.find((v) => v.lang.startsWith('en')) || null;
-    if (enVoice) {
-      utterance.voice = enVoice;
-    }
-
-    utterance.onend = () => finish();
-    utterance.onerror = (e) => {
-      onError?.(e);
-      finish();
-    };
-
-    window.speechSynthesis.resume();
-    window.speechSynthesis.speak(utterance);
-  } catch (err) {
-    onError?.(err);
-    finish();
-  }
 }
