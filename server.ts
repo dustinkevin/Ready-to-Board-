@@ -130,7 +130,99 @@ Return ONLY the feedback string in this exact format.`;
 });
 
 // In-memory audio cache for zero-latency mobile playback
-const ttsCache = new Map<string, Buffer>();
+const ttsCache = new Map<string, { buffer: Buffer; mimeType: string }>();
+
+const ALL_DIALOGUE_SENTENCES = [
+  'Hello! Welcome to Skyline Airways. Where are you traveling today?',
+  'I am flying to London for my vacation.',
+  'May I please see your passport and flight booking?',
+  'Sure, here are my passport and ticket.',
+  'Would you prefer a window seat or an aisle seat?',
+  'I would like a window seat, please.',
+  'Do you have any bags to check in today?',
+  'Yes, I have one suitcase to check in.',
+  'You can take one carry-on bag. Do you have any questions before boarding?',
+  'What time does boarding start for this flight?',
+  'Boarding begins at 1:50 PM at Gate 42. Here is your boarding pass. Have a wonderful flight!',
+  'Thank you so much for your kind help!',
+];
+
+// Helper to generate high-quality audio using Gemini 3.8 Flash Lite TTS
+async function fetchTtsAudio(text: string): Promise<{ buffer: Buffer; mimeType: string }> {
+  // 1. Try Gemini TTS with natural Kore voice
+  if (ai) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash-lite-tts',
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: text,
+                speechMetadata: {
+                  style: 'Warm, clear, natural airport check-in ground staff speaking in fluent American English',
+                },
+              },
+            ],
+          },
+        ],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
+          },
+        },
+      });
+
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (base64Audio) {
+        return {
+          buffer: Buffer.from(base64Audio, 'base64'),
+          mimeType: 'audio/wav',
+        };
+      }
+    } catch (e: any) {
+      console.warn('Gemini TTS fallback needed:', e?.message || e);
+    }
+  }
+
+  // 2. Fallback to Google Translate TTS if Gemini is unavailable
+  const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text)}`;
+  const ttsRes = await fetch(fallbackUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
+
+  if (!ttsRes.ok) {
+    throw new Error('TTS upstream request failed');
+  }
+
+  const arrayBuf = await ttsRes.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuf),
+    mimeType: 'audio/mpeg',
+  };
+}
+
+// Background preloader for dialogue lines to achieve instant 0ms playback
+async function preloadDialogueAudio() {
+  console.log('Preloading dialogue audio files for mobile instant playback...');
+  for (const sentence of ALL_DIALOGUE_SENTENCES) {
+    if (!ttsCache.has(sentence)) {
+      try {
+        const item = await fetchTtsAudio(sentence);
+        ttsCache.set(sentence, item);
+      } catch (err) {
+        console.warn('Failed to pre-cache sentence:', sentence);
+      }
+    }
+  }
+  console.log(`Preloaded ${ttsCache.size} audio sentences into cache.`);
+}
 
 // Audio TTS proxy for reliable mobile (iOS Safari & Android) playback
 app.get('/api/tts', async (req, res) => {
@@ -140,25 +232,15 @@ app.get('/api/tts', async (req, res) => {
       return res.status(400).send('Text required');
     }
 
-    let audioBuffer = ttsCache.get(rawText);
-    if (!audioBuffer) {
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(rawText)}`;
-      const ttsRes = await fetch(ttsUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      });
-
-      if (!ttsRes.ok) {
-        return res.status(502).send('Upstream TTS failed');
-      }
-
-      const arrayBuf = await ttsRes.arrayBuffer();
-      audioBuffer = Buffer.from(arrayBuf);
-      ttsCache.set(rawText, audioBuffer);
+    let item = ttsCache.get(rawText);
+    if (!item) {
+      item = await fetchTtsAudio(rawText);
+      ttsCache.set(rawText, item);
     }
 
-    res.setHeader('Content-Type', 'audio/mpeg');
+    const { buffer: audioBuffer, mimeType } = item;
+
+    res.setHeader('Content-Type', mimeType);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=86400');
 
@@ -201,6 +283,8 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Ready to Board! app running on http://localhost:${PORT}`);
+    // Warm up and pre-cache dialogue audio for instantaneous mobile playback
+    preloadDialogueAudio().catch((err) => console.warn('Preload audio error:', err));
   });
 }
 

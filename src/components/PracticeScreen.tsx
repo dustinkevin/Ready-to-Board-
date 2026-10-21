@@ -68,20 +68,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     startListening,
     stopListening,
   } = useSpeechRecognition({
-    silenceTimeoutMs: 2400,
-    checkShouldEarlyStop: (liveText) => {
-      // 1. Evaluate speech
-      const result = evaluateStudentSpeech(liveText, turn);
-      if (!result.isSuccess) return false;
-
-      // 2. Stop early when the student has finished saying the target response
-      const targetTokens = turn.targetSentence.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
-      const liveTokens = liveText.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(Boolean);
-      const lastTargetWord = targetTokens[targetTokens.length - 1];
-
-      const matchedAll = result.matchedIndices.length >= targetTokens.length;
-      return matchedAll || liveTokens.includes(lastTargetWord) || liveTokens.length >= targetTokens.length;
-    },
+    silenceTimeoutMs: 2000,
     onFinalResult: (finalText) => {
       handleEvaluateSubmission(finalText);
     },
@@ -131,14 +118,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     unlockAudio();
     setIsAudioPlaying(true);
     await speakText(turn.partnerText, {
-      rate: 0.9,
+      rate: 1.0,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
   };
 
-  // Read aloud target sentence at normal rate (0.9)
+  // Read aloud target sentence at normal rate (1.0)
   const playTargetNormal = async () => {
     if (micState === 'listening') {
       stopListening();
@@ -147,14 +134,14 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setUsedHint(true);
     setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
-      rate: 0.9,
+      rate: 1.0,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
   };
 
-  // Read aloud target sentence at slow rate (0.7)
+  // Read aloud target sentence at slow rate (0.75)
   const playTargetSlow = async () => {
     if (micState === 'listening') {
       stopListening();
@@ -163,16 +150,15 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setUsedHint(true);
     setIsAudioPlaying(true);
     await speakText(turn.targetSentence, {
-      rate: 0.7,
+      rate: 0.75,
       onStart: () => setIsAudioPlaying(true),
       onEnd: () => setIsAudioPlaying(false),
       onError: () => setIsAudioPlaying(false),
     });
   };
 
-  // Evaluation & Feedback generation
-  const handleEvaluateSubmission = async (spoken: string) => {
-    if (isAiLoading) return;
+  // Evaluation & Feedback generation (Instant 0ms response)
+  const handleEvaluateSubmission = (spoken: string) => {
     const trimmed = deduplicateTranscript(spoken).trim();
     setLastSpokenText(trimmed);
 
@@ -181,7 +167,7 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
       setFeedback("That's okay! Tap the mic and try speaking again. (괜찮아요! 마이크를 누르고 다시 말해 보세요.)");
       setEvaluation(null);
       setMicState('done');
-      // Do not increment attemptCount on empty/unheard speech
+      setIsAiLoading(false);
       return;
     }
 
@@ -192,57 +178,29 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
     setEvaluation(evalResult);
     setMicState('done');
 
-    // Call server Gemini endpoint, with automatic fallback
-    setIsAiLoading(true);
-    try {
-      const response = await fetch('/api/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          spokenText: trimmed,
-          targetSentence: turn.targetSentence,
-          koreanMeaning: turn.koreanMeaning,
-          partnerText: turn.partnerText,
-          attemptNumber: currentAttempt,
-          isSuccess: evalResult.isSuccess,
-          missingKeywords: evalResult.missingKeywords,
-          missingMinorWords: evalResult.missingMinorWords,
-          turnIndex,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}`);
-      }
-
-      const data = await response.json();
-      setFeedback(data.feedback);
-    } catch (err) {
-      console.warn('Gemini feedback request failed, using deterministic Section 7 fallback:', err);
-      // Section 7 Table Fallback
-      if (evalResult.isSuccess) {
-        if (evalResult.missingMinorWords.length > 0) {
-          const w = evalResult.missingMinorWords[0];
-          setFeedback(`Nice work! I understood you, but try adding "${w}." (잘 전달했어요! '${w}'를 넣으면 더 자연스러워요.)`);
-        } else {
-          setFeedback('Great job! I understood you clearly. (말한 내용을 잘 이해했어요!)');
-        }
+    // Instant pedagogical feedback based strictly on curriculum Section 7 rules
+    let generatedFeedback = '';
+    if (evalResult.isSuccess) {
+      if (evalResult.missingMinorWords.length > 0) {
+        const w = evalResult.missingMinorWords[0];
+        generatedFeedback = `Nice work! I understood you, but try adding "${w}." (잘 전달했어요! '${w}'를 넣으면 더 자연스러워요.)`;
       } else {
-        if (currentAttempt === 1) {
-          setFeedback(turn.recastHint.english + ' (' + turn.recastHint.korean + ')');
-        } else if (currentAttempt === 2) {
-          setFeedback(turn.elicitationHint.english + ' (' + turn.elicitationHint.korean + ')');
-          setUsedHint(true);
-        } else {
-          setFeedback(
-            `Keep going! Say "${turn.chunkingHint.chunk1}" → "${turn.chunkingHint.chunk2}". (${turn.chunkingHint.korean})`
-          );
-          setUsedHint(true);
-        }
+        generatedFeedback = 'Great job! I understood you clearly. (말한 내용을 잘 이해했어요!)';
       }
-    } finally {
-      setIsAiLoading(false);
+    } else {
+      if (currentAttempt === 1) {
+        generatedFeedback = `${turn.recastHint.english} (${turn.recastHint.korean})`;
+      } else if (currentAttempt === 2) {
+        generatedFeedback = `${turn.elicitationHint.english} (${turn.elicitationHint.korean})`;
+        setUsedHint(true);
+      } else {
+        generatedFeedback = `Keep going! Say "${turn.chunkingHint.chunk1}" → "${turn.chunkingHint.chunk2}". (${turn.chunkingHint.korean})`;
+        setUsedHint(true);
+      }
     }
+
+    setFeedback(generatedFeedback);
+    setIsAiLoading(false);
   };
 
   // Mic tap handler

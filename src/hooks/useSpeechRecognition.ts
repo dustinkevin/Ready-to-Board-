@@ -223,17 +223,7 @@ export function useSpeechRecognition({
           setTranscript(fullText);
           onInterimResult?.(fullText);
 
-          // If speech is recognized as correct and reached sentence end, stop immediately!
-          if (checkShouldEarlyStop && checkShouldEarlyStop(fullText)) {
-            clearTimers();
-            deliverFinalResult(fullText);
-            try {
-              recognition.stop();
-            } catch (e) {}
-            return;
-          }
-
-          // Reset silence timer: stop recording after silenceTimeoutMs (2.4s) of continuous silence
+          // Reset silence timer: wait for learner to completely finish speaking
           if (silenceTimerRef.current) {
             clearTimeout(silenceTimerRef.current);
           }
