@@ -14,7 +14,6 @@ import {
   AlertCircle,
   Sparkles,
   Keyboard,
-  Info,
   Loader2,
   Lock,
 } from 'lucide-react';
@@ -203,10 +202,9 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
   // Mic tap handler
   const handleMicClick = () => {
-    // If model audio is playing, interrupt it cleanly and activate microphone
+    // Strictly disable mic interaction while model audio is playing
     if (isAudioPlaying || isSpeaking()) {
-      stopSpeaking();
-      setIsAudioPlaying(false);
+      return;
     }
 
     unlockAudio();
@@ -589,14 +587,15 @@ export const PracticeScreen: React.FC<PracticeScreenProps> = ({
 
             <button
               onClick={handleMicClick}
-              className={`w-20 h-20 sm:w-22 sm:h-22 rounded-full flex flex-col items-center justify-center text-white font-bold shadow-xl transition-all duration-200 active:scale-95 cursor-pointer ${
+              disabled={isAudioPlaying || isSpeaking()}
+              className={`w-20 h-20 sm:w-22 sm:h-22 rounded-full flex flex-col items-center justify-center text-white font-bold shadow-xl transition-all duration-200 active:scale-95 ${
                 isAudioPlaying || isSpeaking()
-                  ? 'bg-slate-500 ring-4 ring-slate-300 shadow-slate-300'
+                  ? 'bg-slate-500 ring-4 ring-slate-300 shadow-slate-300 cursor-not-allowed opacity-90'
                   : micState === 'listening'
-                  ? 'bg-gradient-to-r from-rose-500 to-red-600 ring-4 ring-rose-200 shadow-rose-300'
+                  ? 'bg-gradient-to-r from-rose-500 to-red-600 ring-4 ring-rose-200 shadow-rose-300 cursor-pointer'
                   : micState === 'done'
-                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 ring-4 ring-emerald-100 shadow-emerald-200'
-                  : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 ring-4 ring-sky-100 shadow-sky-300'
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-600 ring-4 ring-emerald-100 shadow-emerald-200 cursor-pointer'
+                  : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 ring-4 ring-sky-100 shadow-sky-300 cursor-pointer'
               }`}
             >
               {isAudioPlaying || isSpeaking() ? (

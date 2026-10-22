@@ -3,14 +3,14 @@
  * Airport Check-in English Speaking Practice App for Middle School Students
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { DIALOGUE_DATA } from './data/dialogueData';
 import { TurnAttempt } from './types/dialogue';
 import { Header } from './components/Header';
 import { StartScreen } from './components/StartScreen';
 import { PracticeScreen } from './components/PracticeScreen';
 import { ResultScreen } from './components/ResultScreen';
-import { stopSpeaking, unlockAudio, speakText, preloadAudios } from './utils/speechSynthesis';
+import { stopSpeaking, unlockAudio, speakText } from './utils/speechSynthesis';
 
 type Screen = 'start' | 'practice' | 'result';
 
@@ -19,12 +19,6 @@ export default function App() {
   const [currentTurnIndex, setCurrentTurnIndex] = useState<number>(0);
   const [attempts, setAttempts] = useState<TurnAttempt[]>([]);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-
-  // Preload dialogue audios in background for instant mobile playback
-  useEffect(() => {
-    const allTexts = DIALOGUE_DATA.flatMap((d) => [d.partnerText, d.targetSentence]);
-    preloadAudios(allTexts);
-  }, []);
 
   // Start practice from Start Screen
   const handleStartPractice = () => {

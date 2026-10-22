@@ -5,16 +5,9 @@ import {
   Plane,
   Star,
   CheckCircle2,
-  AlertCircle,
   RotateCcw,
   Volume2,
-  Calendar,
-  Clock,
-  Sparkles,
   Award,
-  ArrowRight,
-  ShieldCheck,
-  ChevronRight,
 } from 'lucide-react';
 
 interface ResultScreenProps {

@@ -121,12 +121,6 @@ export function unlockAudio(): void {
   } catch (e) {}
 }
 
-/**
- * Preload dummy function for compatibility
- */
-export function preloadAudios(_texts: string[]): void {
-  // Web Speech API does not require pre-downloading files
-}
 
 /**
  * Speak text aloud using browser SpeechSynthesis with guaranteed state release

@@ -16,7 +16,6 @@ export interface UseSpeechRecognitionOptions {
   onInterimResult?: (transcript: string) => void;
   onError?: (error: string) => void;
   silenceTimeoutMs?: number; // default 2400ms (> 2 seconds)
-  checkShouldEarlyStop?: (transcript: string) => boolean;
 }
 
 export function useSpeechRecognition({
@@ -24,7 +23,6 @@ export function useSpeechRecognition({
   onInterimResult,
   onError,
   silenceTimeoutMs = 2400,
-  checkShouldEarlyStop,
 }: UseSpeechRecognitionOptions) {
   const [micState, setMicState] = useState<MicState>('ready');
   const [transcript, setTranscript] = useState<string>('');
@@ -280,7 +278,6 @@ export function useSpeechRecognition({
     onError,
     onInterimResult,
     silenceTimeoutMs,
-    checkShouldEarlyStop,
     stopListening,
     deliverFinalResult,
   ]);

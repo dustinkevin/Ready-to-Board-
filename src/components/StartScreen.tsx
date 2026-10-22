@@ -3,12 +3,7 @@ import { AirportCounterIllustration } from './AirportCounterIllustration';
 import {
   Plane,
   Sparkles,
-  ShieldAlert,
-  Mic,
-  Award,
   AlertTriangle,
-  ExternalLink,
-  CheckCircle2,
   Lock,
 } from 'lucide-react';
 
@@ -16,14 +11,13 @@ interface StartScreenProps {
   onStart: () => void;
   isSupported: boolean;
   isInAppBrowser: boolean;
-  permissionError: string | null;
+  permissionError?: string | null;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
   onStart,
   isSupported,
   isInAppBrowser,
-  permissionError,
 }) => {
   return (
     <div className="flex flex-col items-center justify-between min-h-[calc(100vh-60px)] px-4 py-6 max-w-xl mx-auto w-full">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plane, Volume2, VolumeX, ShieldCheck, User } from 'lucide-react';
+import { Plane, Volume2, VolumeX, User } from 'lucide-react';
 
 interface HeaderProps {
   currentScreen: 'start' | 'practice' | 'result';
